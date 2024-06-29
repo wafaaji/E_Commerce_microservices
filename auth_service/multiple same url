@@ -1,0 +1,248 @@
+The error you are encountering, `java.lang.IllegalStateException: Ambiguous handler methods`, is because there are two methods in your `AuthController` that handle the same URL pattern. Specifically, you have two methods that map to `"/{id}"` and `"/{username}"` which can cause confusion for Spring MVC to determine which method to invoke.
+
+To resolve this issue, you need to differentiate the URL patterns for the two methods. Here's how you can modify your `AuthController` to use distinct URL patterns:
+
+### Modify the AuthController
+
+#### Use Different URL Patterns
+
+Update the `AuthController` to have different URL patterns for fetching by ID and username.
+
+```java
+package com.example.auth_service.controllers;
+
+import com.example.auth_service.entities.Auth;
+import com.example.auth_service.services.AuthService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    @Autowired
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @GetMapping("/id/{id}")
+    public ResponseEntity<Auth> getUserById(@PathVariable Long id) {
+        Optional<Auth> user = authService.findById(id);
+        return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/username/{username}")
+    public ResponseEntity<Auth> getUserByUsername(@PathVariable String username) {
+        Optional<Auth> user = authService.findByUsername(username);
+        return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+```
+
+### Ensure AuthService Has Corresponding Methods
+
+Ensure your `AuthService` has the corresponding methods to find by ID and by username.
+
+#### AuthService.java
+
+```java
+package com.example.auth_service.services;
+
+import com.example.auth_service.entities.Auth;
+import com.example.auth_service.repositories.AuthRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+
+@Service
+public class AuthService {
+
+    private final AuthRepository authRepository;
+
+    @Autowired
+    public AuthService(AuthRepository authRepository) {
+        this.authRepository = authRepository;
+    }
+
+    public Optional<Auth> findById(Long id) {
+        return authRepository.findById(id);
+    }
+
+    public Optional<Auth> findByUsername(String username) {
+        return authRepository.findByUsername(username);
+    }
+}
+```
+
+### Update ProductService
+
+Now you can call the `auth-service` endpoint to check if the `ownerId` exists before creating the product.
+
+#### ProductService.java
+
+```java
+package com.example.product_service.services;
+
+import com.example.product_service.entities.Product;
+import com.example.product_service.repositories.ProductRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class ProductService {
+
+    private final ProductRepository productRepository;
+    private final RestTemplate restTemplate;
+
+    @Autowired
+    public ProductService(ProductRepository productRepository, RestTemplate restTemplate) {
+        this.productRepository = productRepository;
+        this.restTemplate = restTemplate;
+    }
+
+    public Product createProduct(Product product) {
+        // AuthService URL
+        String url = "http://localhost:8002/api/auth/id/" + product.getOwnerId();
+
+        ResponseEntity<Auth> response = restTemplate.getForEntity(url, Auth.class);
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            return productRepository.save(product);
+        } else {
+            throw new RuntimeException("Owner not found in auth-service");
+        }
+    }
+}
+```
+
+By making these changes, the ambiguity in the URL patterns is resolved, and your `AuthController` now has clear endpoints for finding a user by ID or by username. This ensures that your `ProductService` can correctly verify the `ownerId` before creating a product.
+
+
+
+### The Error
+
+The error you encountered was:
+
+```
+Incompatible types. Found: 'java.util.Optional<com.example.auth_service.entities.Auth>', required: 'com.example.auth_service.entities.Auth'
+```
+
+This error occurs because the `findById` method returns an `Optional<Auth>`, but you were treating it as if it directly returned an `Auth` object. An `Optional` is a container that may or may not contain a non-null value, and you need to handle it appropriately.
+
+### Solution
+
+To resolve this issue, you need to properly handle the `Optional` returned by `findById`. Specifically, you should check if the `Optional` contains a value using methods like `isPresent()` or `map()`, and then retrieve the actual `Auth` object using `get()` if the `Optional` is not empty.
+
+### Updated Methods
+
+#### `updateUser` Method
+
+In the `updateUser` method, you should check if the `Optional` contains a value and then proceed with the update:
+
+```java
+@PutMapping("/{id}")
+public ResponseEntity<Auth> updateUser(@PathVariable Long id, @RequestBody Auth user) {
+    Optional<Auth> existingUserOpt = authService.findById(id);
+    if (!existingUserOpt.isPresent()) {
+        return ResponseEntity.notFound().build();
+    }
+
+    Auth existingUser = existingUserOpt.get();
+    user.setId(id); // Ensure the ID is set correctly
+    Auth updatedUser = authService.updateUser(user);
+    return ResponseEntity.ok(updatedUser);
+}
+```
+
+#### `deleteUser` Method
+
+In the `deleteUser` method, you should check if the `Optional` contains a value before attempting to delete:
+
+```java
+@DeleteMapping("/{id}")
+public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+    Optional<Auth> existingUserOpt = authService.findById(id);
+    if (!existingUserOpt.isPresent()) {
+        return ResponseEntity.notFound().build();
+    }
+
+    authService.deleteUser(id);
+    return ResponseEntity.noContent().build();
+}
+```
+
+### Complete Example
+
+Here's the complete `AuthController` with the necessary changes:
+
+```java
+package com.example.auth_service.controllers;
+
+import com.example.auth_service.entities.Auth;
+import com.example.auth_service.services.AuthService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthService authService;
+
+    @Autowired
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Auth> updateUser(@PathVariable Long id, @RequestBody Auth user) {
+        Optional<Auth> existingUserOpt = authService.findById(id);
+        if (!existingUserOpt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Auth existingUser = existingUserOpt.get();
+        user.setId(id); // Ensure the ID is set correctly
+        Auth updatedUser = authService.updateUser(user);
+        return ResponseEntity.ok(updatedUser);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        Optional<Auth> existingUserOpt = authService.findById(id);
+        if (!existingUserOpt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        authService.deleteUser(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/id/{id}")
+    public ResponseEntity<Auth> getUserById(@PathVariable Long id) {
+        Optional<Auth> user = authService.findById(id);
+        return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/username/{username}")
+    public ResponseEntity<Auth> getUserByUsername(@PathVariable String username) {
+        Optional<Auth> user = authService.findByUsername(username);
+        return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+}
+```
+
+### Summary
+
+The main issue was that you were trying to directly use an `Optional<Auth>` as an `Auth` object. The solution involved checking if the `Optional` contains a value (`isPresent()`) and then retrieving the actual `Auth` object (`get()`) if it does. This way, you properly handle the possibility of the `Optional` being empty, which prevents the `NoSuchElementException` and ensures the code functions correctly.
