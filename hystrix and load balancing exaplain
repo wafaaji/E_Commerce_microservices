@@ -1,0 +1,195 @@
+To add Hystrix for circuit breaking and a load balancing mechanism in your Spring microservices, you can follow these steps. Hystrix, which was a part of the Netflix OSS stack, has been superseded by resilience4j in modern Spring applications, as Hystrix is no longer actively maintained. For load balancing, Spring Cloud LoadBalancer is commonly used. However, I'll cover both Hystrix and the newer approaches.
+
+### Step 1: Set Up Your Spring Boot Microservices
+
+Ensure that your microservices are set up with Spring Boot. Each microservice should have a separate application.
+
+### Step 2: Add Dependencies
+
+Add the necessary dependencies to your `pom.xml` for each microservice.
+
+**For Hystrix:**
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix-dashboard</artifactId>
+</dependency>
+```
+
+**For Load Balancing (using Ribbon or Spring Cloud LoadBalancer):**
+
+If using Ribbon (note that Ribbon is also in maintenance mode, but still widely used):
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-ribbon</artifactId>
+</dependency>
+```
+
+If using Spring Cloud LoadBalancer:
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+</dependency>
+```
+
+### Step 3: Enable Hystrix
+
+In your main application class, enable Hystrix with the `@EnableHystrix` annotation.
+
+```java
+import org.springframework.cloud.client.circuitbreaker.EnableCircuitBreaker;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+@EnableCircuitBreaker
+public class YourApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
+}
+```
+
+### Step 4: Create a Hystrix Command
+
+Wrap your service calls in Hystrix commands.
+
+```java
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class YourService {
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @HystrixCommand(fallbackMethod = "fallbackMethod")
+    public String callExternalService() {
+        return restTemplate.getForObject("http://your-service/endpoint", String.class);
+    }
+
+    public String fallbackMethod() {
+        return "Fallback response";
+    }
+}
+```
+
+### Step 5: Enable Load Balancing
+
+**For Ribbon:**
+
+In your main application class, enable Ribbon with the `@RibbonClient` annotation.
+
+```java
+import org.springframework.cloud.netflix.ribbon.RibbonClient;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+@RibbonClient(name = "your-service")
+public class YourApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
+}
+```
+
+Define the service URL in your `application.properties` or `application.yml`:
+
+```properties
+your-service.ribbon.listOfServers=http://localhost:8081,http://localhost:8082
+```
+
+**For Spring Cloud LoadBalancer:**
+
+Simply use the `@LoadBalanced` annotation on your `RestTemplate` bean:
+
+```java
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
+
+@Configuration
+public class AppConfig {
+
+    @Bean
+    @LoadBalanced
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+```
+
+### Step 6: Running Your Application
+
+Run your microservices. Each should be running on a different port (if you're running multiple instances of the same service).
+
+### Step 7: Monitor Hystrix Dashboard (Optional)
+
+If you added the Hystrix Dashboard dependency, you can access the dashboard at `/hystrix`.
+
+### Modern Alternative: Using Resilience4j and Spring Cloud LoadBalancer
+
+If you prefer a more modern and actively maintained approach:
+
+**Add Resilience4j dependencies:**
+
+```xml
+<dependency>
+    <groupId>io.github.resilience4j</groupId>
+    <artifactId>resilience4j-spring-boot2</artifactId>
+    <version>1.7.1</version>
+</dependency>
+<dependency>
+    <groupId>io.github.resilience4j</groupId>
+    <artifactId>resilience4j-circuitbreaker</artifactId>
+    <version>1.7.1</version>
+</dependency>
+```
+
+**Configure Resilience4j:**
+
+```java
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class YourService {
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @CircuitBreaker(name = "yourService", fallbackMethod = "fallbackMethod")
+    public String callExternalService() {
+        return restTemplate.getForObject("http://your-service/endpoint", String.class);
+    }
+
+    public String fallbackMethod(Throwable throwable) {
+        return "Fallback response";
+    }
+}
+```
+
+**For load balancing, use the same Spring Cloud LoadBalancer setup as mentioned above.**
+
+### Summary
+
+By following these steps, you can implement Hystrix and load balancing in your Spring Boot microservices. For modern applications, consider using Resilience4j instead of Hystrix and Spring Cloud LoadBalancer for load balancing.
+
+
+https://deksmond.medium.com/deprecated-gradle-features-were-used-in-this-build-making-it-incompatible-with-gradle-8-0-cdbe9f2fa628
